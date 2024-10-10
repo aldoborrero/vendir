@@ -93,7 +93,7 @@ jobs:
           cosign verify-blob \
           --cert dist/checksums.txt.pem \
           --signature dist/checksums.txt.sig \
-          --certificate-identity-regexp=https://github.com/carvel-dev \
+          --certificate-identity-regexp=https://github.com/aldoborrero \
           --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
           dist/checksums.txt
 
