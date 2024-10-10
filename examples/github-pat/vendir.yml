@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-auth
+data:
+  username: dXNlcgo=
+  token: Z2hwX01uQ3lEdklEVGM5bU9XdUpLSWUxQmlXcmhZYUFyUzROb2ZkUwo=
+---
+apiVersion: vendir.k14s.io/v1alpha1
+kind: Config
+directories:
+  - path: vendor
+    contents:
+      - path: secretgen-controller
+        git:
+          url: https://github.com/binarly-io/argocd-manifests.git
+          ref: origin/master
+          secretRef:
+            name: github-auth
+        includePaths:
+          - charts/secretgen-controller/**/*

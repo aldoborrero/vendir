@@ -28,15 +28,15 @@ type Git struct {
 }
 
 func NewGit(opts ctlconf.DirectoryContentsGit,
-	infoLog io.Writer, refFetcher ctlfetch.RefFetcher) *Git {
-
+	infoLog io.Writer, refFetcher ctlfetch.RefFetcher,
+) *Git {
 	return &Git{opts, infoLog, refFetcher, &runner{infoLog}}
 }
 
 // NewGitWithRunner creates a Git retriever with a provided runner
 func NewGitWithRunner(opts ctlconf.DirectoryContentsGit,
-	infoLog io.Writer, refFetcher ctlfetch.RefFetcher, cmdRunner CommandRunner) *Git {
-
+	infoLog io.Writer, refFetcher ctlfetch.RefFetcher, cmdRunner CommandRunner,
+) *Git {
 	return &Git{opts, infoLog, refFetcher, cmdRunner}
 }
 
@@ -103,7 +103,7 @@ func (t *Git) fetch(dstPath string, tempArea ctlfetch.TempArea, bundle string) e
 			path := filepath.Join(authDir, "private-key")
 
 			// Ensure the private key ends with a newline character, as git requires it to work. (https://github.com/carvel-dev/vendir/issues/350)
-			err = os.WriteFile(path, []byte(*authOpts.PrivateKey+"\n"), 0600)
+			err = os.WriteFile(path, []byte(*authOpts.PrivateKey+"\n"), 0o600)
 			if err != nil {
 				return fmt.Errorf("Writing private key: %s", err)
 			}
@@ -114,7 +114,7 @@ func (t *Git) fetch(dstPath string, tempArea ctlfetch.TempArea, bundle string) e
 		if authOpts.KnownHosts != nil {
 			path := filepath.Join(authDir, "known-hosts")
 
-			err = os.WriteFile(path, []byte(*authOpts.KnownHosts), 0600)
+			err = os.WriteFile(path, []byte(*authOpts.KnownHosts), 0o600)
 			if err != nil {
 				return fmt.Errorf("Writing known hosts: %s", err)
 			}
@@ -135,6 +135,28 @@ func (t *Git) fetch(dstPath string, tempArea ctlfetch.TempArea, bundle string) e
 	}
 	gitURL := t.opts.URL
 	gitCredsPath := filepath.Join(authDir, ".git-credentials")
+
+	if authOpts.GithubAPIToken != nil {
+		if !strings.HasPrefix(gitURL, "https://") {
+			return fmt.Errorf("GitHub Token authentication is only supported for https remotes")
+		}
+
+		// Parse the existing URL
+		parsedURL, err := url.Parse(gitURL)
+		if err != nil {
+			return fmt.Errorf("Parsing git remote url: %s", err)
+		}
+
+		// Modify the URL to include the GitHubAPIToken and also the user
+		user := "user"
+		if authOpts.Username != nil {
+			user = strings.TrimSpace(*authOpts.Username)
+		}
+		parsedURL.User = url.UserPassword(user, strings.TrimSpace(*authOpts.GithubAPIToken))
+
+		// Update the gitURL with the new authenticated URL
+		gitURL = parsedURL.String()
+	}
 
 	argss := [][]string{
 		{"init"},
@@ -159,7 +181,7 @@ func (t *Git) fetch(dstPath string, tempArea ctlfetch.TempArea, bundle string) e
 			gitCredsURL.User = url.UserPassword(*authOpts.Username, *authOpts.Password)
 			gitCredsURL.Path = ""
 
-			err = os.WriteFile(gitCredsPath, []byte(gitCredsURL.String()+"\n"), 0600)
+			err = os.WriteFile(gitCredsPath, []byte(gitCredsURL.String()+"\n"), 0o600)
 			if err != nil {
 				return fmt.Errorf("Writing %s: %s", gitCredsPath, err)
 			}
@@ -284,14 +306,15 @@ func (r *runner) Run(args []string, env []string, dstPath string) (string, strin
 }
 
 type gitAuthOpts struct {
-	PrivateKey *string
-	KnownHosts *string
-	Username   *string
-	Password   *string
+	PrivateKey     *string
+	KnownHosts     *string
+	Username       *string
+	Password       *string
+	GithubAPIToken *string
 }
 
 func (o gitAuthOpts) IsPresent() bool {
-	return o.PrivateKey != nil || o.KnownHosts != nil || o.Username != nil || o.Password != nil
+	return o.PrivateKey != nil || o.KnownHosts != nil || o.Username != nil || o.Password != nil || o.GithubAPIToken != nil
 }
 
 func (t *Git) getAuthOpts() (gitAuthOpts, error) {
@@ -317,6 +340,9 @@ func (t *Git) getAuthOpts() (gitAuthOpts, error) {
 			case ctlconf.SecretK8sCorev1BasicAuthPasswordKey:
 				password := string(val)
 				opts.Password = &password
+			case ctlconf.SecretGithubAPIToken:
+				token := string(val)
+				opts.GithubAPIToken = &token
 			default:
 				return opts, fmt.Errorf("Unknown secret field '%s' in secret '%s'", name, t.opts.SecretRef.Name)
 			}
